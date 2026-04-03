@@ -101,7 +101,7 @@ class RentFasterScraper(BaseScraper):
                     listing_data = _parse_listing(item, city_name)
                     # Reveal phone if not included in API response
                     if not listing_data['phone']:
-                        listing_data['phone'] = await self._reveal_phone(item['ref_id'])
+                        listing_data['phone'] = await self._reveal_phone(item['ref_id'], city_name)
                     self.upsert_listing(listing_data)
 
                 if len(items) < PAGE_SIZE:
@@ -112,7 +112,7 @@ class RentFasterScraper(BaseScraper):
             if should_close:
                 await _client.aclose()
 
-    async def _reveal_phone(self, ref_id: int) -> str | None:
+    async def _reveal_phone(self, ref_id: int, city_name: str) -> str | None:
         """Open listing in headless browser, click Reveal, intercept phone API call."""
         proxy_config = self.proxy.playwright_config()
         revealed_phone = None
@@ -139,8 +139,9 @@ class RentFasterScraper(BaseScraper):
             page.on('response', on_response)
 
             try:
+                city_slug = city_name.lower().replace(' ', '-')
                 await page.goto(
-                    f'https://www.rentfaster.ca/ab/rentals/?v={ref_id}',
+                    f'https://www.rentfaster.ca/ab/{city_slug}/rentals/?v={ref_id}',
                     wait_until='domcontentloaded',
                     timeout=20000,
                 )
