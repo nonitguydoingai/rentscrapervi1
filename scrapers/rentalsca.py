@@ -36,7 +36,7 @@ def _parse_rent(raw: str | None) -> int | None:
     return int(digits) if digits else None
 
 
-class RentalsСaScraper(BaseScraper):
+class RentalsCaScraper(BaseScraper):
     def __init__(self, session, log_buffer, proxy: ProxyManager):
         super().__init__(session, log_buffer)
         self.proxy = proxy
@@ -71,43 +71,47 @@ class RentalsСaScraper(BaseScraper):
     async def _collect_listing_urls(self, context) -> list[str]:
         """Paginate through Alberta search results and collect all listing URLs."""
         urls = []
+        seen: set[str] = set()
         page_num = 1
         max_pages = getattr(self, '_max_pages', None)  # allows smoke-test limiting
         page = await context.new_page()
 
-        while True:
-            if max_pages and page_num > max_pages:
-                break
-            await page.goto(
-                SEARCH_URL.format(page=page_num),
-                wait_until='networkidle',
-                timeout=30000,
-            )
-            cards = await page.locator('a[href*="/listing/"]').all()
-            if not cards:
-                break
+        try:
+            while True:
+                if max_pages and page_num > max_pages:
+                    break
+                await page.goto(
+                    SEARCH_URL.format(page=page_num),
+                    wait_until='networkidle',
+                    timeout=30000,
+                )
+                cards = await page.locator('a[href*="/listing/"]').all()
+                if not cards:
+                    break
 
-            batch = []
-            for card in cards:
-                href = await card.get_attribute('href')
-                if href and '/listing/' in href:
-                    full = href if href.startswith('http') else BASE_URL + href
-                    if full not in urls:
-                        batch.append(full)
+                batch = []
+                for card in cards:
+                    href = await card.get_attribute('href')
+                    if href and '/listing/' in href:
+                        full = href if href.startswith('http') else BASE_URL + href
+                        if full not in seen:
+                            seen.add(full)
+                            batch.append(full)
 
-            if not batch:
-                break
+                if not batch:
+                    break
 
-            urls.extend(batch)
-            self.log.append(f'[Rentals.ca] Page {page_num}: {len(batch)} listings')
+                urls.extend(batch)
+                self.log.append(f'[Rentals.ca] Page {page_num}: {len(batch)} listings')
 
-            next_btn = page.locator('[aria-label="Next page"], a:has-text("Next")').first
-            if await next_btn.count() == 0:
-                break
-            page_num += 1
-            await asyncio.sleep(1)
+                next_btn = page.locator('[aria-label="Next page"], a:has-text("Next")').first
+                if await next_btn.count() == 0:
+                    break
+                page_num += 1
+                await asyncio.sleep(1)
+        finally:
+            await page.close()
 
-        await page.close()
         return urls
 
     async def _scrape_listing_page(self, page: Page, url: str) -> dict | None:

@@ -212,6 +212,23 @@
 </div>
 
 <script>
+// Escape HTML special characters to prevent XSS
+function esc(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// Validate phone — only allow characters safe in a tel: URI
+function safePhone(phone) {
+  if (!phone) return null;
+  return /^[\d\s\-\.\(\)\+]+$/.test(String(phone)) ? String(phone) : null;
+}
+
 const PROP_BADGE = {
   'Apartment': 'badge-apt', 'Full Home': 'badge-house',
   'Private/Sharing Room': 'badge-room', 'Condo': 'badge-condo',
@@ -279,20 +296,21 @@ function renderDailyTable(filter, rows) {
   }
 
   tbody.innerHTML = rows.map(r => {
-    const phone = r.phone
-      ? `<a class="phone-link" href="tel:${r.phone}">${r.phone}</a>`
+    const rawPhone = safePhone(r.phone);
+    const phone = rawPhone
+      ? `<a class="phone-link" href="tel:${rawPhone}">${esc(rawPhone)}</a>`
       : '<span style="color:#9ca3af">&#8212;</span>';
     const beds = r.beds != null ? r.beds : '&#8212;';
     const baths = r.baths != null ? r.baths : '&#8212;';
 
     if (filter === 'three_plus') {
-      return `<tr><td>${phone}</td><td>${r.listing_count}</td><td style="color:#6b7280;font-size:12px">${r.addresses || ''}</td></tr>`;
+      return `<tr><td>${phone}</td><td>${r.listing_count}</td><td style="color:#6b7280;font-size:12px">${esc(r.addresses)}</td></tr>`;
     }
     if (filter === 'price_drops') {
       return `<tr>
-        <td>${r.title || '&#8212;'}</td>
+        <td>${esc(r.title) || '&#8212;'}</td>
         <td>${phone}</td>
-        <td>${r.address || '&#8212;'}</td>
+        <td>${esc(r.address) || '&#8212;'}</td>
         <td class="old-rent">$${r.old_rent}</td>
         <td class="new-rent">$${r.new_rent}</td>
         <td>${beds} / ${baths}</td>
@@ -301,17 +319,17 @@ function renderDailyTable(filter, rows) {
     if (filter === 'fourteen_plus') {
       return `<tr>
         <td><span class="days-badge">${r.days_listed}d</span></td>
-        <td>${r.title || '&#8212;'}</td>
+        <td>${esc(r.title) || '&#8212;'}</td>
         <td>${phone}</td>
-        <td>${r.address || '&#8212;'}</td>
+        <td>${esc(r.address) || '&#8212;'}</td>
         <td>${beds} / ${baths}</td>
         <td class="rent-cell">${r.rent ? '$' + r.rent : '&#8212;'}</td>
       </tr>`;
     }
     return `<tr>
-      <td>${r.title || '&#8212;'}</td>
+      <td>${esc(r.title) || '&#8212;'}</td>
       <td>${phone}</td>
-      <td>${r.address || '&#8212;'}</td>
+      <td>${esc(r.address) || '&#8212;'}</td>
       <td>${beds} / ${baths}</td>
       <td class="rent-cell">${r.rent ? '$' + r.rent : '&#8212;'}</td>
     </tr>`;
@@ -354,8 +372,9 @@ function renderMainTable(rows) {
   }
   tbody.innerHTML = rows.map(r => {
     const badgeClass = PROP_BADGE[r.property_type] || 'badge-apt';
-    const phone = r.phone
-      ? `<a class="phone-link" href="tel:${r.phone}">&#128222; ${r.phone}</a>`
+    const rawPhone = safePhone(r.phone);
+    const phone = rawPhone
+      ? `<a class="phone-link" href="tel:${rawPhone}">&#128222; ${esc(rawPhone)}</a>`
       : '<span style="color:#9ca3af">No phone</span>';
     const features = [
       r.beds != null ? `&#128716; ${r.beds}` : '',
@@ -365,19 +384,19 @@ function renderMainTable(rows) {
     const source = r.source === 'rentfaster' ? 'RentFaster' : 'Rentals.ca';
     return `<tr>
       <td>
-        <div style="font-weight:600">${r.title || '&#8212;'}</div>
-        ${r.property_type ? `<span class="prop-badge ${badgeClass}">${r.property_type}</span>` : ''}
+        <div style="font-weight:600">${esc(r.title) || '&#8212;'}</div>
+        ${r.property_type ? `<span class="prop-badge ${badgeClass}">${esc(r.property_type)}</span>` : ''}
       </td>
       <td>
-        <div>${r.address || '&#8212;'}</div>
-        <div style="color:#6b7280;font-size:12px">${r.city || ''}</div>
+        <div>${esc(r.address) || '&#8212;'}</div>
+        <div style="color:#6b7280;font-size:12px">${esc(r.city)}</div>
       </td>
       <td>${phone}</td>
       <td style="font-size:12px;color:#4b5563">${features}</td>
       <td class="rent-cell">${r.rent ? '$' + r.rent : '&#8212;'}</td>
-      <td><span class="source-badge">${source}</span></td>
-      <td style="color:#6b7280;font-size:12px">${r.posted_date || '&#8212;'}</td>
-      <td style="color:#6b7280;font-size:12px">${r.last_seen || '&#8212;'}</td>
+      <td><span class="source-badge">${esc(source)}</span></td>
+      <td style="color:#6b7280;font-size:12px">${esc(r.posted_date) || '&#8212;'}</td>
+      <td style="color:#6b7280;font-size:12px">${esc(r.last_seen) || '&#8212;'}</td>
     </tr>`;
   }).join('');
 }
@@ -470,15 +489,15 @@ async function openLogs() {
   }
   body.innerHTML = logs.map(l => `
     <div class="log-entry">
-      <div style="font-weight:600">${l.source} &#8212; Run ${l.run_id?.slice(0,8)}</div>
+      <div style="font-weight:600">${esc(l.source)} &#8212; Run ${esc(l.run_id?.slice(0,8))}</div>
       <div class="log-meta">
-        Started: <span>${l.started_at || '&#8212;'}</span>
-        Finished: <span>${l.finished_at || 'In progress'}</span>
+        Started: <span>${esc(l.started_at) || '&#8212;'}</span>
+        Finished: <span>${esc(l.finished_at) || 'In progress'}</span>
         New: <span>${l.new_count}</span>
         Updated: <span>${l.updated_count}</span>
         Errors: <span>${l.error_count}</span>
       </div>
-      ${l.log_text ? `<pre>${l.log_text}</pre>` : ''}
+      ${l.log_text ? `<pre>${esc(l.log_text)}</pre>` : ''}
     </div>
   `).join('');
 }

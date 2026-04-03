@@ -6,7 +6,7 @@ from database import get_session
 from models import ScrapeLog
 from scrapers.proxy import ProxyManager
 from scrapers.rentfaster import RentFasterScraper
-from scrapers.rentalsca import RentalsСaScraper
+from scrapers.rentalsca import RentalsCaScraper
 
 
 def run_all():
@@ -31,7 +31,7 @@ async def _run_all_async():
         rf = RentFasterScraper(session, log_buffer, proxy)
         await rf.run()
 
-        rc = RentalsСaScraper(session, log_buffer, proxy)
+        rc = RentalsCaScraper(session, log_buffer, proxy)
         await rc.run()
 
         scrape_log.new_count = rf.new_count + rc.new_count

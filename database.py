@@ -20,7 +20,7 @@ def _get_engine():
                         'DATABASE_URL environment variable is not set. '
                         'Copy .env.example to .env and fill in your credentials.'
                     )
-                _engine = create_engine(url)
+                _engine = create_engine(url, pool_pre_ping=True)
     return _engine
 
 

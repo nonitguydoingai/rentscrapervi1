@@ -33,12 +33,11 @@ def test_playwright_config_without_auth():
     assert 'username' not in config
 
 
-def test_httpx_proxies_with_proxy():
+def test_httpx_proxy_url_with_proxy():
     pm = ProxyManager(proxies=['http://user:pass@proxy1.test:8080'])
-    result = pm.httpx_proxies()
-    assert result == {'http://': 'http://user:pass@proxy1.test:8080', 'https://': 'http://user:pass@proxy1.test:8080'}
+    assert pm.httpx_proxy_url() == 'http://user:pass@proxy1.test:8080'
 
 
-def test_httpx_proxies_no_proxy():
+def test_httpx_proxy_url_no_proxy():
     pm = ProxyManager(proxies=[])
-    assert pm.httpx_proxies() is None
+    assert pm.httpx_proxy_url() is None

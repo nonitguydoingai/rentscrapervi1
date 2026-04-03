@@ -66,29 +66,42 @@ class RentFasterScraper(BaseScraper):
         self.proxy = proxy
 
     async def run(self):
-        async with httpx.AsyncClient(headers=HEADERS, timeout=30) as client:
-            for city_name, city_id in ALBERTA_CITIES.items():
-                self.log.append(f'[RentFaster] Scraping {city_name}...')
-                try:
-                    await self._fetch_city(city_name=city_name, city_id=city_id,
-                                           client=client)
-                except Exception as e:
-                    self.log.append(f'[RentFaster] ERROR {city_name}: {e}')
-                    self.error_count += 1
+        proxy_url = self.proxy.httpx_proxy_url()
+        client_kwargs = {'headers': HEADERS, 'timeout': 30}
+        if proxy_url:
+            client_kwargs['proxy'] = proxy_url
+
+        proxy_config = self.proxy.playwright_config()
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True, proxy=proxy_config)
+            context = await browser.new_context(
+                user_agent=HEADERS['User-Agent'],
+                extra_http_headers={'Accept-Language': 'en-CA,en;q=0.9'},
+            )
+            try:
+                async with httpx.AsyncClient(**client_kwargs) as client:
+                    for city_name, city_id in ALBERTA_CITIES.items():
+                        self.log.append(f'[RentFaster] Scraping {city_name}...')
+                        try:
+                            await self._fetch_city(city_name=city_name, city_id=city_id,
+                                                   client=client, pw_context=context)
+                        except Exception as e:
+                            self.log.append(f'[RentFaster] ERROR {city_name}: {e}')
+                            self.error_count += 1
+            finally:
+                await browser.close()
         self.session.commit()
 
-    async def _fetch_city(self, city_name: str, city_id: int, client=None):
+    async def _fetch_city(self, city_name: str, city_id: int, client=None, pw_context=None):
         offset = 0
         _client = client or httpx.AsyncClient(headers=HEADERS, timeout=30)
         should_close = client is None
 
         try:
             while True:
-                proxies = self.proxy.httpx_proxies()
                 resp = await _client.get(
                     RENTFASTER_API,
                     params={'city_id': city_id, 'novac': offset},
-                    **(({'proxies': proxies}) if proxies else {}),
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -101,7 +114,8 @@ class RentFasterScraper(BaseScraper):
                     listing_data = _parse_listing(item, city_name)
                     # Reveal phone if not included in API response
                     if not listing_data['phone']:
-                        listing_data['phone'] = await self._reveal_phone(item['ref_id'], city_name)
+                        listing_data['phone'] = await self._reveal_phone(
+                            item['ref_id'], city_name, pw_context)
                     self.upsert_listing(listing_data)
 
                 if len(items) < PAGE_SIZE:
@@ -112,57 +126,53 @@ class RentFasterScraper(BaseScraper):
             if should_close:
                 await _client.aclose()
 
-    async def _reveal_phone(self, ref_id: int, city_name: str) -> str | None:
-        """Open listing in headless browser, click Reveal, intercept phone API call."""
-        proxy_config = self.proxy.playwright_config()
+    async def _reveal_phone(self, ref_id: int, city_name: str, context=None) -> str | None:
+        """Open listing page in shared browser context, click Reveal, capture phone."""
         revealed_phone = None
 
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True, proxy=proxy_config)
-            context = await browser.new_context(
-                user_agent=HEADERS['User-Agent'],
-                extra_http_headers={'Accept-Language': 'en-CA,en;q=0.9'},
+        if context is None:
+            return None  # no browser context available
+
+        page = await context.new_page()
+
+        async def on_response(response):
+            nonlocal revealed_phone
+            if 'phone' in response.url or 'contact' in response.url:
+                try:
+                    body = await response.json()
+                    revealed_phone = (body.get('phone')
+                                      or body.get('number')
+                                      or body.get('tel'))
+                except Exception:
+                    pass
+
+        page.on('response', on_response)
+
+        try:
+            city_slug = city_name.lower().replace(' ', '-')
+            await page.goto(
+                f'https://www.rentfaster.ca/ab/{city_slug}/rentals/?v={ref_id}',
+                wait_until='domcontentloaded',
+                timeout=20000,
             )
-            page = await context.new_page()
+            reveal = page.locator(
+                'button:has-text("Reveal"), '
+                'a:has-text("Reveal"), '
+                '[class*="reveal-phone"], '
+                '[data-action*="reveal"]'
+            ).first
+            if await reveal.count() > 0:
+                await reveal.click()
+                await page.wait_for_timeout(1500)
 
-            async def on_response(response):
-                nonlocal revealed_phone
-                if 'phone' in response.url or 'contact' in response.url:
-                    try:
-                        body = await response.json()
-                        revealed_phone = (body.get('phone')
-                                          or body.get('number')
-                                          or body.get('tel'))
-                    except Exception:
-                        pass
-
-            page.on('response', on_response)
-
-            try:
-                city_slug = city_name.lower().replace(' ', '-')
-                await page.goto(
-                    f'https://www.rentfaster.ca/ab/{city_slug}/rentals/?v={ref_id}',
-                    wait_until='domcontentloaded',
-                    timeout=20000,
-                )
-                reveal = page.locator(
-                    'button:has-text("Reveal"), '
-                    'a:has-text("Reveal"), '
-                    '[class*="reveal-phone"], '
-                    '[data-action*="reveal"]'
-                ).first
-                if await reveal.count() > 0:
-                    await reveal.click()
-                    await page.wait_for_timeout(1500)
-
-                if not revealed_phone:
-                    tel = page.locator('a[href^="tel:"]').first
-                    if await tel.count() > 0:
-                        href = await tel.get_attribute('href')
-                        revealed_phone = href.replace('tel:', '').strip()
-            except Exception as e:
-                self.log.append(f'[RentFaster] Phone reveal failed for {ref_id}: {e}')
-            finally:
-                await browser.close()
+            if not revealed_phone:
+                tel = page.locator('a[href^="tel:"]').first
+                if await tel.count() > 0:
+                    href = await tel.get_attribute('href')
+                    revealed_phone = href.replace('tel:', '').strip()
+        except Exception as e:
+            self.log.append(f'[RentFaster] Phone reveal failed for {ref_id}: {e}')
+        finally:
+            await page.close()
 
         return revealed_phone

@@ -34,9 +34,6 @@ class ProxyManager:
             config['password'] = parsed.password
         return config
 
-    def httpx_proxies(self):
-        """Return httpx proxies dict or None."""
-        url = self.get()
-        if not url:
-            return None
-        return {'http://': url, 'https://': url}
+    def httpx_proxy_url(self):
+        """Return proxy URL string for httpx client construction, or None."""
+        return self.get()

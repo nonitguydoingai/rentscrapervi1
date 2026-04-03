@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+import secrets
 import threading
 from datetime import date, timedelta, datetime, timezone
 
@@ -18,9 +19,30 @@ _scraper_running = False
 _scraper_lock = threading.Lock()
 
 
+def _safe_int(val, default=None):
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(val, default=None):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_date(val, default=None):
+    try:
+        return date.fromisoformat(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def create_app(db_session: Session = None):
     app = Flask(__name__)
-    app.secret_key = os.getenv('SECRET_KEY', 'dev')
+    app.secret_key = os.getenv('SECRET_KEY') or secrets.token_hex(32)
 
     def _session():
         return db_session if db_session is not None else get_session()
@@ -30,7 +52,9 @@ def create_app(db_session: Session = None):
     def _apply_listing_filters(query, args):
         keyword = args.get('keyword', '').strip()
         if keyword:
-            like = f'%{keyword}%'
+            # Escape LIKE special characters to prevent wildcard injection
+            safe_kw = keyword.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+            like = f'%{safe_kw}%'
             query = query.filter(
                 or_(Listing.title.ilike(like),
                     Listing.address.ilike(like),
@@ -40,28 +64,32 @@ def create_app(db_session: Session = None):
             query = query.filter(Listing.city == args['city'])
         if args.get('property_type'):
             query = query.filter(Listing.property_type == args['property_type'])
-        if args.get('beds'):
-            query = query.filter(Listing.beds == float(args['beds']))
-        if args.get('baths'):
-            query = query.filter(Listing.baths == float(args['baths']))
+        beds = _safe_float(args.get('beds'))
+        if beds is not None:
+            query = query.filter(Listing.beds == beds)
+        baths = _safe_float(args.get('baths'))
+        if baths is not None:
+            query = query.filter(Listing.baths == baths)
         if args.get('source'):
             query = query.filter(Listing.source == args['source'])
-        if args.get('rent_min'):
-            query = query.filter(Listing.rent >= int(args['rent_min']))
-        if args.get('rent_max'):
-            query = query.filter(Listing.rent <= int(args['rent_max']))
-        if args.get('sqft_min'):
-            query = query.filter(Listing.sqft >= int(args['sqft_min']))
-        if args.get('sqft_max'):
-            query = query.filter(Listing.sqft <= int(args['sqft_max']))
-        if args.get('date_seen_from'):
-            query = query.filter(
-                Listing.last_seen >= date.fromisoformat(args['date_seen_from'])
-            )
-        if args.get('date_posted_after'):
-            query = query.filter(
-                Listing.posted_date >= date.fromisoformat(args['date_posted_after'])
-            )
+        rent_min = _safe_int(args.get('rent_min'))
+        if rent_min is not None:
+            query = query.filter(Listing.rent >= rent_min)
+        rent_max = _safe_int(args.get('rent_max'))
+        if rent_max is not None:
+            query = query.filter(Listing.rent <= rent_max)
+        sqft_min = _safe_int(args.get('sqft_min'))
+        if sqft_min is not None:
+            query = query.filter(Listing.sqft >= sqft_min)
+        sqft_max = _safe_int(args.get('sqft_max'))
+        if sqft_max is not None:
+            query = query.filter(Listing.sqft <= sqft_max)
+        date_seen = _safe_date(args.get('date_seen_from'))
+        if date_seen is not None:
+            query = query.filter(Listing.last_seen >= date_seen)
+        date_posted = _safe_date(args.get('date_posted_after'))
+        if date_posted is not None:
+            query = query.filter(Listing.posted_date >= date_posted)
         return query
 
     def _sort_query(query, sort_by):
@@ -107,8 +135,8 @@ def create_app(db_session: Session = None):
             query = _apply_listing_filters(query, request.args)
             query = _sort_query(query, request.args.get('sort_by', 'newest_first'))
             total = query.count()
-            page = int(request.args.get('page', 1))
-            per_page = int(request.args.get('per_page', 25))
+            page = max(1, _safe_int(request.args.get('page'), 1))
+            per_page = min(max(1, _safe_int(request.args.get('per_page'), 25)), 100)
             listings = query.offset((page - 1) * per_page).limit(per_page).all()
             return jsonify({
                 'total': total,
@@ -197,11 +225,14 @@ def create_app(db_session: Session = None):
 
             new_landlords = new_today  # same definition for the badge
 
-            three_plus = session.query(Listing.phone).filter(
-                Listing.phone != None, Listing.is_active == True
-            ).group_by(Listing.phone).having(
-                func.count(Listing.id) >= 3
-            ).count()
+            three_plus_subq = (
+                session.query(Listing.phone)
+                .filter(Listing.phone != None, Listing.is_active == True)
+                .group_by(Listing.phone)
+                .having(func.count(Listing.id) >= 3)
+                .subquery()
+            )
+            three_plus = session.query(func.count()).select_from(three_plus_subq).scalar() or 0
 
             fourteen_plus = session.query(func.count(Listing.id)).filter(
                 Listing.first_seen <= cutoff_14, Listing.is_active == True
@@ -248,31 +279,92 @@ def create_app(db_session: Session = None):
     def api_export():
         session = _session()
         try:
-            query = session.query(Listing).filter(Listing.is_active == True)
-            query = _apply_listing_filters(query, request.args)
-            query = _sort_query(query, request.args.get('sort_by', 'newest_first'))
-            listings = query.all()
-
+            today = date.today()
+            filter_type = request.args.get('filter')
             output = io.StringIO()
-            writer = csv.DictWriter(output, fieldnames=[
-                'title', 'address', 'city', 'property_type', 'beds', 'baths',
-                'sqft', 'rent', 'phone', 'source', 'first_seen', 'last_seen',
-                'posted_date', 'url',
-            ])
-            writer.writeheader()
-            for l in listings:
-                writer.writerow({
-                    'title': l.title, 'address': l.address, 'city': l.city,
-                    'property_type': l.property_type,
-                    'beds': float(l.beds) if l.beds else '',
-                    'baths': float(l.baths) if l.baths else '',
-                    'sqft': l.sqft or '', 'rent': l.rent or '',
-                    'phone': l.phone or '', 'source': l.source,
-                    'first_seen': l.first_seen.isoformat() if l.first_seen else '',
-                    'last_seen': l.last_seen.isoformat() if l.last_seen else '',
-                    'posted_date': l.posted_date.isoformat() if l.posted_date else '',
-                    'url': l.url or '',
-                })
+
+            if filter_type == 'three_plus':
+                subq = (session.query(Listing.phone,
+                                      func.count(Listing.id).label('cnt'),
+                                      func.string_agg(Listing.address, ' | ').label('addrs'))
+                        .filter(Listing.phone != None, Listing.is_active == True)
+                        .group_by(Listing.phone)
+                        .having(func.count(Listing.id) >= 3)
+                        .all())
+                writer = csv.DictWriter(output, fieldnames=['phone', 'listing_count', 'addresses'])
+                writer.writeheader()
+                for row in subq:
+                    writer.writerow({'phone': row.phone, 'listing_count': row.cnt,
+                                     'addresses': row.addrs or ''})
+
+            elif filter_type == 'price_drops':
+                today_start = datetime.combine(today, datetime.min.time()).replace(
+                    tzinfo=timezone.utc)
+                rows = (session.query(Listing, PriceHistory)
+                        .join(PriceHistory)
+                        .filter(PriceHistory.changed_at >= today_start,
+                                PriceHistory.new_rent < PriceHistory.old_rent)
+                        .all())
+                writer = csv.DictWriter(output, fieldnames=[
+                    'title', 'phone', 'address', 'city', 'old_rent', 'new_rent', 'beds', 'baths', 'url'])
+                writer.writeheader()
+                for l, ph in rows:
+                    writer.writerow({
+                        'title': l.title or '', 'phone': l.phone or '',
+                        'address': l.address or '', 'city': l.city or '',
+                        'old_rent': ph.old_rent, 'new_rent': ph.new_rent,
+                        'beds': float(l.beds) if l.beds else '',
+                        'baths': float(l.baths) if l.baths else '',
+                        'url': l.url or '',
+                    })
+
+            elif filter_type == 'fourteen_plus':
+                cutoff = today - timedelta(days=14)
+                rows = (session.query(Listing)
+                        .filter(Listing.first_seen <= cutoff, Listing.is_active == True)
+                        .order_by(Listing.first_seen.asc()).all())
+                writer = csv.DictWriter(output, fieldnames=[
+                    'days_listed', 'title', 'phone', 'address', 'city', 'beds', 'baths', 'rent', 'url'])
+                writer.writeheader()
+                for l in rows:
+                    writer.writerow({
+                        'days_listed': (today - l.first_seen).days if l.first_seen else '',
+                        'title': l.title or '', 'phone': l.phone or '',
+                        'address': l.address or '', 'city': l.city or '',
+                        'beds': float(l.beds) if l.beds else '',
+                        'baths': float(l.baths) if l.baths else '',
+                        'rent': l.rent or '', 'url': l.url or '',
+                    })
+
+            else:
+                # new_landlords filter or standard main listings export
+                query = session.query(Listing).filter(Listing.is_active == True)
+                if filter_type == 'new_landlords':
+                    query = query.filter(Listing.first_seen == today)
+                else:
+                    query = _apply_listing_filters(query, request.args)
+                query = _sort_query(query, request.args.get('sort_by', 'newest_first'))
+                listings = query.all()
+                writer = csv.DictWriter(output, fieldnames=[
+                    'title', 'address', 'city', 'property_type', 'beds', 'baths',
+                    'sqft', 'rent', 'phone', 'source', 'first_seen', 'last_seen',
+                    'posted_date', 'url',
+                ])
+                writer.writeheader()
+                for l in listings:
+                    writer.writerow({
+                        'title': l.title, 'address': l.address, 'city': l.city,
+                        'property_type': l.property_type,
+                        'beds': float(l.beds) if l.beds else '',
+                        'baths': float(l.baths) if l.baths else '',
+                        'sqft': l.sqft or '', 'rent': l.rent or '',
+                        'phone': l.phone or '', 'source': l.source,
+                        'first_seen': l.first_seen.isoformat() if l.first_seen else '',
+                        'last_seen': l.last_seen.isoformat() if l.last_seen else '',
+                        'posted_date': l.posted_date.isoformat() if l.posted_date else '',
+                        'url': l.url or '',
+                    })
+
             return Response(
                 output.getvalue(),
                 mimetype='text/csv',
@@ -318,9 +410,21 @@ if __name__ == '__main__':
     import pytz
     from scrapers import run_all as _run_all
 
+    def _scheduled_run():
+        """Scheduled entry point — respects the same mutex as /api/run."""
+        global _scraper_running
+        with _scraper_lock:
+            if _scraper_running:
+                return  # manual run already in progress, skip this cycle
+            _scraper_running = True
+        try:
+            _run_all()
+        finally:
+            _scraper_running = False
+
     scheduler = BackgroundScheduler()
     scheduler.add_job(
-        func=_run_all,
+        func=_scheduled_run,
         trigger=CronTrigger(hour=6, minute=0, timezone=pytz.timezone('America/Edmonton')),
         id='daily_scrape',
         replace_existing=True,
