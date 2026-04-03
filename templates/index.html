@@ -436,7 +436,7 @@ function exportCSV(tab) {
 async function runScraper() {
   const btn = document.getElementById('runBtn');
   btn.disabled = true;
-  btn.textContent = '&#9203; Running...';
+  btn.innerHTML = '&#9203; Running...';
   const r = await fetch('/api/run', { method: 'POST' });
   if (r.status === 409) {
     alert('Scraper is already running.');
