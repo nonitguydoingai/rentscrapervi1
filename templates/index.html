@@ -1,1 +1,497 @@
-<!DOCTYPE html><html><body><h1>UrbanLease Rental Data</h1></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UrbanLease Rental Data</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#5B4FE8" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+    UrbanLease Rental Data.
+    <span class="logo-version">v3.0</span>
+  </div>
+  <div class="header-actions">
+    <button class="btn" onclick="openLogs()">&#128336; Logs</button>
+    <button class="btn btn-primary" id="runBtn" onclick="runScraper()">&#9729; Run Scraper</button>
+  </div>
+</header>
+
+<div class="container">
+  <div class="stat-card">
+    <div class="stat-label">New Today</div>
+    <div class="stat-value" id="newToday">+0</div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab-nav">
+      <button class="tab-btn active" onclick="switchTab('daily', this)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        Daily
+      </button>
+      <button class="tab-btn" onclick="switchTab('main', this)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+        Main Listings
+        <span class="tab-count" id="mainCount">0</span>
+      </button>
+    </div>
+
+    <!-- DAILY TAB -->
+    <div class="tab-content active" id="tab-daily">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div class="daily-filters">
+          <button class="filter-btn active" id="btn-new_landlords" onclick="loadDaily('new_landlords')">
+            &#11088; New Landlords <span class="badge badge-green" id="cnt-new_landlords">0</span>
+          </button>
+          <button class="filter-btn" id="btn-three_plus" onclick="loadDaily('three_plus')">
+            &#128218; 3+ Listings <span class="badge badge-blue" id="cnt-three_plus">0</span>
+          </button>
+          <button class="filter-btn" id="btn-fourteen_plus" onclick="loadDaily('fourteen_plus')">
+            &#9200; 14+ Days Listed <span class="badge badge-purple" id="cnt-fourteen_plus">0</span>
+          </button>
+          <button class="filter-btn" id="btn-price_drops" onclick="loadDaily('price_drops')">
+            &#8595; Price Drops <span class="badge badge-red" id="cnt-price_drops">0</span>
+          </button>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" onclick="loadCounts(); loadDaily(currentDailyFilter)">&#8635; Refresh</button>
+          <button class="btn btn-success" onclick="exportCSV('daily')">&#128196; Export CSV</button>
+        </div>
+      </div>
+      <div class="loader" id="daily-loader"><span class="spinner"></span>Loading...</div>
+      <div class="table-wrap">
+        <table id="daily-table">
+          <thead id="daily-thead"></thead>
+          <tbody id="daily-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MAIN LISTINGS TAB -->
+    <div class="tab-content" id="tab-main">
+      <div class="search-grid">
+        <div class="filter-group">
+          <label>Keyword Search</label>
+          <input type="text" id="f-keyword" placeholder="Address, name, community..." />
+        </div>
+        <div class="filter-group">
+          <label>City</label>
+          <select id="f-city">
+            <option value="">All Cities</option>
+            <option>Calgary</option><option>Edmonton</option><option>Red Deer</option>
+            <option>Lethbridge</option><option>Medicine Hat</option>
+            <option>Grande Prairie</option><option>Airdrie</option>
+            <option>Sherwood Park</option><option>St. Albert</option>
+            <option>Fort McMurray</option><option>Okotoks</option>
+            <option>Cochrane</option><option>Canmore</option>
+            <option>Brooks</option><option>Camrose</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Property Type</label>
+          <select id="f-property_type">
+            <option value="">All Types</option>
+            <option>Apartment</option><option>Full Home</option>
+            <option>Private/Sharing Room</option><option>Condo</option>
+            <option>Townhouse</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Beds</label>
+          <select id="f-beds">
+            <option value="">Any</option>
+            <option>1</option><option>2</option><option>3</option>
+            <option>4</option><option>5</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Baths</label>
+          <select id="f-baths">
+            <option value="">Any</option>
+            <option>1</option><option>1.5</option><option>2</option>
+            <option>2.5</option><option>3</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Source</label>
+          <select id="f-source">
+            <option value="">All</option>
+            <option value="rentfaster">RentFaster</option>
+            <option value="rentalsca">Rentals.ca</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Date (Seen From)</label>
+          <input type="date" id="f-date_seen_from" />
+        </div>
+      </div>
+      <div class="search-grid-2">
+        <div class="filter-group">
+          <label>Rent Min</label>
+          <input type="number" id="f-rent_min" placeholder="800" />
+        </div>
+        <div class="filter-group">
+          <label>Rent Max</label>
+          <input type="number" id="f-rent_max" placeholder="3000" />
+        </div>
+        <div class="filter-group">
+          <label>Sqft Min</label>
+          <input type="number" id="f-sqft_min" placeholder="500" />
+        </div>
+        <div class="filter-group">
+          <label>Sqft Max</label>
+          <input type="number" id="f-sqft_max" placeholder="2000" />
+        </div>
+        <div class="filter-group">
+          <label>Date Posted After</label>
+          <input type="date" id="f-date_posted_after" />
+        </div>
+        <div class="filter-group">
+          <label>Sort By</label>
+          <select id="f-sort_by">
+            <option value="newest_first">Newest First</option>
+            <option value="oldest_first">Oldest First</option>
+            <option value="rent_low">Rent Low &rarr; High</option>
+            <option value="rent_high">Rent High &rarr; Low</option>
+            <option value="recent_seen">Most Recent Seen</option>
+          </select>
+        </div>
+      </div>
+      <div class="search-actions">
+        <button class="btn btn-primary" onclick="searchListings(1)">&#128269; Search</button>
+        <button class="btn" onclick="clearFilters()">&#10005; Clear</button>
+        <button class="btn btn-success" onclick="exportCSV('main')">&#128196; Export CSV</button>
+      </div>
+      <div class="table-controls">
+        <div class="show-entries">
+          Show <select id="perPage" onchange="searchListings(1)">
+            <option value="25">25</option><option value="50">50</option>
+            <option value="100">100</option>
+          </select> entries
+        </div>
+        <div class="quick-search">
+          <input type="text" id="quickSearch" placeholder="Quick search..."
+                 oninput="quickFilter()" />
+        </div>
+      </div>
+      <div class="loader" id="main-loader"><span class="spinner"></span>Loading...</div>
+      <div class="table-wrap">
+        <table id="main-table">
+          <thead>
+            <tr>
+              <th>TITLE</th><th>ADDRESS</th><th>CONTACT</th>
+              <th>FEATURES</th><th>RENT</th><th>SOURCE</th>
+              <th>POSTED</th><th>SEEN</th>
+            </tr>
+          </thead>
+          <tbody id="main-tbody"></tbody>
+        </table>
+      </div>
+      <div class="table-footer">
+        <div id="main-info">Showing 0 results</div>
+        <div class="pagination" id="main-pagination"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LOGS MODAL -->
+<div class="modal-overlay" id="logsModal">
+  <div class="modal">
+    <div class="modal-header">
+      Scrape Logs
+      <button class="modal-close" onclick="closeLogs()">&#10005;</button>
+    </div>
+    <div class="modal-body" id="logsBody">Loading...</div>
+  </div>
+</div>
+
+<script>
+const PROP_BADGE = {
+  'Apartment': 'badge-apt', 'Full Home': 'badge-house',
+  'Private/Sharing Room': 'badge-room', 'Condo': 'badge-condo',
+  'Townhouse': 'badge-town',
+};
+
+let currentDailyFilter = 'new_landlords';
+let currentPage = 1;
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+  if (name === 'main') searchListings(1);
+}
+
+// ── Counts ───────────────────────────────────────────────────────────────────
+async function loadCounts() {
+  const r = await fetch('/api/daily/counts');
+  const d = await r.json();
+  document.getElementById('newToday').textContent = '+' + (d.new_today || 0);
+  document.getElementById('cnt-new_landlords').textContent = d.new_landlords || 0;
+  document.getElementById('cnt-three_plus').textContent = d.three_plus || 0;
+  document.getElementById('cnt-fourteen_plus').textContent = d.fourteen_plus || 0;
+  document.getElementById('cnt-price_drops').textContent = d.price_drops || 0;
+  // Main Listings total
+  const lr = await fetch('/api/listings?per_page=1');
+  const ld = await lr.json();
+  document.getElementById('mainCount').textContent = ld.total || 0;
+}
+
+// ── Daily Tab ────────────────────────────────────────────────────────────────
+async function loadDaily(filter) {
+  currentDailyFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-' + filter).classList.add('active');
+
+  const loader = document.getElementById('daily-loader');
+  loader.style.display = 'block';
+  const r = await fetch(`/api/daily?filter=${filter}`);
+  const d = await r.json();
+  loader.style.display = 'none';
+
+  renderDailyTable(filter, d.data || []);
+}
+
+function renderDailyTable(filter, rows) {
+  const thead = document.getElementById('daily-thead');
+  const tbody = document.getElementById('daily-tbody');
+
+  const headers = {
+    new_landlords: ['NAME / COMPANY', 'PHONE', 'ADDRESS', 'BEDS/BATHS', 'RENT'],
+    three_plus: ['PHONE', '# LISTINGS', 'ADDRESSES'],
+    fourteen_plus: ['DAYS LISTED', 'NAME / COMPANY', 'PHONE', 'ADDRESS', 'BEDS/BATHS', 'RENT'],
+    price_drops: ['NAME / COMPANY', 'PHONE', 'ADDRESS', 'OLD RENT', 'NEW RENT', 'BEDS/BATHS'],
+  };
+
+  thead.innerHTML = '<tr>' + (headers[filter] || []).map(h => `<th>${h}</th>`).join('') + '</tr>';
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#9ca3af">No data</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const phone = r.phone
+      ? `<a class="phone-link" href="tel:${r.phone}">${r.phone}</a>`
+      : '<span style="color:#9ca3af">&#8212;</span>';
+    const beds = r.beds != null ? r.beds : '&#8212;';
+    const baths = r.baths != null ? r.baths : '&#8212;';
+
+    if (filter === 'three_plus') {
+      return `<tr><td>${phone}</td><td>${r.listing_count}</td><td style="color:#6b7280;font-size:12px">${r.addresses || ''}</td></tr>`;
+    }
+    if (filter === 'price_drops') {
+      return `<tr>
+        <td>${r.title || '&#8212;'}</td>
+        <td>${phone}</td>
+        <td>${r.address || '&#8212;'}</td>
+        <td class="old-rent">$${r.old_rent}</td>
+        <td class="new-rent">$${r.new_rent}</td>
+        <td>${beds} / ${baths}</td>
+      </tr>`;
+    }
+    if (filter === 'fourteen_plus') {
+      return `<tr>
+        <td><span class="days-badge">${r.days_listed}d</span></td>
+        <td>${r.title || '&#8212;'}</td>
+        <td>${phone}</td>
+        <td>${r.address || '&#8212;'}</td>
+        <td>${beds} / ${baths}</td>
+        <td class="rent-cell">${r.rent ? '$' + r.rent : '&#8212;'}</td>
+      </tr>`;
+    }
+    return `<tr>
+      <td>${r.title || '&#8212;'}</td>
+      <td>${phone}</td>
+      <td>${r.address || '&#8212;'}</td>
+      <td>${beds} / ${baths}</td>
+      <td class="rent-cell">${r.rent ? '$' + r.rent : '&#8212;'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Main Listings ─────────────────────────────────────────────────────────────
+async function searchListings(page) {
+  currentPage = page;
+  const loader = document.getElementById('main-loader');
+  loader.style.display = 'block';
+
+  const params = new URLSearchParams();
+  const fields = ['keyword','city','property_type','beds','baths','source',
+                  'date_seen_from','rent_min','rent_max','sqft_min','sqft_max',
+                  'date_posted_after','sort_by'];
+  fields.forEach(f => {
+    const val = document.getElementById('f-' + f)?.value;
+    if (val) params.set(f, val);
+  });
+  params.set('page', page);
+  params.set('per_page', document.getElementById('perPage').value);
+
+  const r = await fetch('/api/listings?' + params);
+  const d = await r.json();
+  loader.style.display = 'none';
+
+  renderMainTable(d.listings || []);
+  document.getElementById('main-info').textContent =
+    `Showing ${((page-1)*d.per_page)+1}&#8211;${Math.min(page*d.per_page, d.total)} of ${d.total} results`;
+  renderPagination(d.total, d.per_page, page);
+  document.getElementById('mainCount').textContent = d.total;
+}
+
+function renderMainTable(rows) {
+  const tbody = document.getElementById('main-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#9ca3af">No results</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const badgeClass = PROP_BADGE[r.property_type] || 'badge-apt';
+    const phone = r.phone
+      ? `<a class="phone-link" href="tel:${r.phone}">&#128222; ${r.phone}</a>`
+      : '<span style="color:#9ca3af">No phone</span>';
+    const features = [
+      r.beds != null ? `&#128716; ${r.beds}` : '',
+      r.baths != null ? `&#127754; ${r.baths}` : '',
+      r.sqft ? `&#8596; ${r.sqft} sqft` : '',
+    ].filter(Boolean).join('  ');
+    const source = r.source === 'rentfaster' ? 'RentFaster' : 'Rentals.ca';
+    return `<tr>
+      <td>
+        <div style="font-weight:600">${r.title || '&#8212;'}</div>
+        ${r.property_type ? `<span class="prop-badge ${badgeClass}">${r.property_type}</span>` : ''}
+      </td>
+      <td>
+        <div>${r.address || '&#8212;'}</div>
+        <div style="color:#6b7280;font-size:12px">${r.city || ''}</div>
+      </td>
+      <td>${phone}</td>
+      <td style="font-size:12px;color:#4b5563">${features}</td>
+      <td class="rent-cell">${r.rent ? '$' + r.rent : '&#8212;'}</td>
+      <td><span class="source-badge">${source}</span></td>
+      <td style="color:#6b7280;font-size:12px">${r.posted_date || '&#8212;'}</td>
+      <td style="color:#6b7280;font-size:12px">${r.last_seen || '&#8212;'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderPagination(total, perPage, current) {
+  const pages = Math.ceil(total / perPage);
+  const el = document.getElementById('main-pagination');
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  const start = Math.max(1, current - 2);
+  const end = Math.min(pages, current + 2);
+  let html = '';
+  if (current > 1) html += `<button class="page-btn" onclick="searchListings(${current-1})">&#8249;</button>`;
+  for (let i = start; i <= end; i++) {
+    html += `<button class="page-btn ${i===current?'active':''}" onclick="searchListings(${i})">${i}</button>`;
+  }
+  if (current < pages) html += `<button class="page-btn" onclick="searchListings(${current+1})">&#8250;</button>`;
+  el.innerHTML = html;
+}
+
+function clearFilters() {
+  ['keyword','city','property_type','beds','baths','source',
+   'date_seen_from','rent_min','rent_max','sqft_min','sqft_max',
+   'date_posted_after'].forEach(f => {
+    const el = document.getElementById('f-' + f);
+    if (el) el.value = '';
+  });
+  document.getElementById('f-sort_by').value = 'newest_first';
+  searchListings(1);
+}
+
+function quickFilter() {
+  const term = document.getElementById('quickSearch').value.toLowerCase();
+  document.querySelectorAll('#main-tbody tr').forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(term) ? '' : 'none';
+  });
+}
+
+// ── Export CSV ────────────────────────────────────────────────────────────────
+function exportCSV(tab) {
+  if (tab === 'daily') {
+    window.location = `/api/export?filter=${currentDailyFilter}`;
+  } else {
+    const params = new URLSearchParams();
+    const fields = ['keyword','city','property_type','beds','baths','source',
+                    'date_seen_from','rent_min','rent_max','sqft_min','sqft_max',
+                    'date_posted_after','sort_by'];
+    fields.forEach(f => {
+      const val = document.getElementById('f-' + f)?.value;
+      if (val) params.set(f, val);
+    });
+    window.location = '/api/export?' + params;
+  }
+}
+
+// ── Run Scraper ───────────────────────────────────────────────────────────────
+async function runScraper() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  btn.textContent = '&#9203; Running...';
+  const r = await fetch('/api/run', { method: 'POST' });
+  if (r.status === 409) {
+    alert('Scraper is already running.');
+    btn.disabled = false;
+    btn.innerHTML = '&#9729; Run Scraper';
+    return;
+  }
+  // Poll status every 5s
+  const poll = setInterval(async () => {
+    const s = await fetch('/api/status');
+    const d = await s.json();
+    if (d.status === 'idle') {
+      clearInterval(poll);
+      btn.disabled = false;
+      btn.innerHTML = '&#9729; Run Scraper';
+      loadCounts();
+      loadDaily(currentDailyFilter);
+    }
+  }, 5000);
+}
+
+// ── Logs Modal ────────────────────────────────────────────────────────────────
+async function openLogs() {
+  document.getElementById('logsModal').classList.add('open');
+  const r = await fetch('/api/logs');
+  const logs = await r.json();
+  const body = document.getElementById('logsBody');
+  if (!logs.length) {
+    body.innerHTML = '<p style="color:#9ca3af;text-align:center;padding:24px">No logs yet.</p>';
+    return;
+  }
+  body.innerHTML = logs.map(l => `
+    <div class="log-entry">
+      <div style="font-weight:600">${l.source} &#8212; Run ${l.run_id?.slice(0,8)}</div>
+      <div class="log-meta">
+        Started: <span>${l.started_at || '&#8212;'}</span>
+        Finished: <span>${l.finished_at || 'In progress'}</span>
+        New: <span>${l.new_count}</span>
+        Updated: <span>${l.updated_count}</span>
+        Errors: <span>${l.error_count}</span>
+      </div>
+      ${l.log_text ? `<pre>${l.log_text}</pre>` : ''}
+    </div>
+  `).join('');
+}
+
+function closeLogs() {
+  document.getElementById('logsModal').classList.remove('open');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  loadCounts();
+  loadDaily('new_landlords');
+});
+</script>
+</body>
+</html>
