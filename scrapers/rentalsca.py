@@ -53,15 +53,16 @@ class RentalsСaScraper(BaseScraper):
                 listing_urls = await self._collect_listing_urls(context)
                 self.log.append(f'[Rentals.ca] Found {len(listing_urls)} listings')
                 for url in listing_urls:
+                    page = await context.new_page()
                     try:
-                        page = await context.new_page()
                         data = await self._scrape_listing_page(page, url)
-                        await page.close()
                         if data:
                             self.upsert_listing(data)
                     except Exception as e:
                         self.log.append(f'[Rentals.ca] ERROR {url}: {e}')
                         self.error_count += 1
+                    finally:
+                        await page.close()
                     await asyncio.sleep(0.5)
             finally:
                 await browser.close()
