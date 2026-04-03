@@ -1,0 +1,17 @@
+[Unit]
+Description=UrbanLease Rental Scraper
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/urbanlease/scraper
+EnvironmentFile=/opt/urbanlease/scraper/.env
+ExecStart=/opt/urbanlease/venv/bin/python app.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
