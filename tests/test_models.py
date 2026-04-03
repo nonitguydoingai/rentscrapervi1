@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from models import Listing, PriceHistory, ScrapeLog
 
 
@@ -30,7 +30,7 @@ def test_price_history_linked(db_session):
     db_session.flush()
 
     history = PriceHistory(listing_id=listing.id, old_rent=1200, new_rent=1100,
-                           changed_at=datetime.utcnow())
+                           changed_at=datetime.now(timezone.utc))
     db_session.add(history)
     db_session.commit()
 
@@ -40,7 +40,7 @@ def test_price_history_linked(db_session):
 
 def test_scrape_log_defaults(db_session):
     """ScrapeLog gets a run_id and timestamps."""
-    log = ScrapeLog(source='all', started_at=datetime.utcnow())
+    log = ScrapeLog(source='all', started_at=datetime.now(timezone.utc))
     db_session.add(log)
     db_session.commit()
     assert log.run_id is not None

@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from sqlalchemy import (Column, Integer, String, Text, Boolean, Date,
                         DateTime, Numeric, ForeignKey, UniqueConstraint)
 from sqlalchemy.orm import relationship, declarative_base
@@ -25,8 +25,8 @@ class Listing(Base):
     rent = Column(Integer)
     phone = Column(String(30))
     url = Column(Text)
-    first_seen = Column(Date, default=date.today)
-    last_seen = Column(Date, default=date.today)
+    first_seen = Column(Date, nullable=False, default=date.today)
+    last_seen = Column(Date, nullable=False, default=date.today)
     posted_date = Column(Date)
     is_active = Column(Boolean, default=True)
 
@@ -43,7 +43,7 @@ class PriceHistory(Base):
     listing_id = Column(Integer, ForeignKey('listings.id'), nullable=False)
     old_rent = Column(Integer)
     new_rent = Column(Integer)
-    changed_at = Column(DateTime, default=datetime.utcnow)
+    changed_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     listing = relationship('Listing', back_populates='price_history')
 
@@ -52,10 +52,10 @@ class ScrapeLog(Base):
     __tablename__ = 'scrape_logs'
 
     id = Column(Integer, primary_key=True)
-    run_id = Column(String(36), default=lambda: str(uuid.uuid4()))
+    run_id = Column(String(36), nullable=False, default=lambda: str(uuid.uuid4()))
     source = Column(String(20))
-    started_at = Column(DateTime)
-    finished_at = Column(DateTime)
+    started_at = Column(DateTime(timezone=True))
+    finished_at = Column(DateTime(timezone=True))
     new_count = Column(Integer, default=0)
     updated_count = Column(Integer, default=0)
     error_count = Column(Integer, default=0)

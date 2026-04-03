@@ -1,17 +1,26 @@
 import os
+import threading
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models import Base
 
 _engine = None
 _Session = None
+_lock = threading.Lock()
 
 
 def _get_engine():
     global _engine
     if _engine is None:
-        url = os.getenv('DATABASE_URL', 'postgresql://urbanlease:password@localhost/urbanlease')
-        _engine = create_engine(url)
+        with _lock:
+            if _engine is None:  # double-checked locking
+                url = os.getenv('DATABASE_URL')
+                if not url:
+                    raise EnvironmentError(
+                        'DATABASE_URL environment variable is not set. '
+                        'Copy .env.example to .env and fill in your credentials.'
+                    )
+                _engine = create_engine(url)
     return _engine
 
 
@@ -22,6 +31,7 @@ def init_db():
 
 def get_session():
     global _Session
-    if _Session is None:
-        _Session = sessionmaker(bind=_get_engine())
+    with _lock:
+        if _Session is None:
+            _Session = sessionmaker(bind=_get_engine())
     return _Session()

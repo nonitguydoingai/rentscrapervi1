@@ -9,11 +9,14 @@ from scrapers.proxy import ProxyManager
 def db_session():
     engine = create_engine('sqlite:///:memory:')
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
+    connection = engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection)
     session = Session()
     yield session
     session.close()
-    Base.metadata.drop_all(engine)
+    transaction.rollback()
+    connection.close()
 
 
 @pytest.fixture
