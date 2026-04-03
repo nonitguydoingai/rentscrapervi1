@@ -13,6 +13,36 @@ ALBERTA_CITIES = [
     'Fort McMurray', 'Okotoks', 'Cochrane', 'Canmore', 'Brooks', 'Camrose',
 ]
 
+# Map Rentals.ca scraped type strings → canonical property types
+RENTALSCA_TYPE_MAP = {
+    'apartment': 'Apartment',
+    'condo': 'Apartment',
+    'loft': 'Loft',
+    'townhouse': 'Townhome',
+    'townhome': 'Townhome',
+    'duplex': 'Duplex',
+    'house': 'Full Home',
+    'full home': 'Full Home',
+    'single family': 'Full Home',
+    'detached': 'Full Home',
+    'main floor': 'MainFloor',
+    'mainfloor': 'MainFloor',
+    'basement': 'Basement',
+    'basement suite': 'Basement',
+    'room': 'Private/Sharing Room',
+    'private room': 'Private/Sharing Room',
+    'shared room': 'Private/Sharing Room',
+    'acreage': 'Acreage',
+    'farm': 'Acreage',
+    'rural': 'Acreage',
+    'garage suite': 'Garage Suite/mobile-home',
+    'mobile home': 'Garage Suite/mobile-home',
+    'office': 'Office Space',
+    'commercial': 'Office Space',
+    'parking': 'Parking Spot',
+    'storage': 'Storage',
+}
+
 HEADERS = {
     'User-Agent': (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -42,7 +72,12 @@ class RentalsCaScraper(BaseScraper):
         self.proxy = proxy
 
     async def run(self):
+        from datetime import date
+        from models import Listing
+
         proxy_config = self.proxy.playwright_config()
+        today = date.today()
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, proxy=proxy_config)
             context = await browser.new_context(
@@ -66,6 +101,14 @@ class RentalsCaScraper(BaseScraper):
                     await asyncio.sleep(0.5)
             finally:
                 await browser.close()
+
+        # Mark listings not seen today as inactive
+        deactivated = (self.session.query(Listing)
+                       .filter(Listing.source == 'rentalsca',
+                               Listing.is_active == True,
+                               Listing.last_seen < today)
+                       .update({'is_active': False}, synchronize_session=False))
+        self.log.append(f'[Rentals.ca] Marked {deactivated} listings inactive')
         self.session.commit()
 
     async def _collect_listing_urls(self, context) -> list[str]:
@@ -132,7 +175,9 @@ class RentalsCaScraper(BaseScraper):
         beds_raw = await text('[class*="beds"]')
         baths_raw = await text('[class*="baths"]')
         sqft_raw = await text('[class*="sqft"], [class*="sq-ft"]')
-        prop_type = await text('[class*="property-type"], [class*="listing-type"]')
+        prop_type_raw = await text('[class*="property-type"], [class*="listing-type"]')
+        prop_type = RENTALSCA_TYPE_MAP.get(
+            (prop_type_raw or '').lower().strip(), 'Other') if prop_type_raw else None
 
         # Phone — try tel: link first, then reveal button
         phone = None

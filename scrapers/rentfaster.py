@@ -26,6 +26,36 @@ ALBERTA_CITIES = {
     'Camrose': 52,
 }
 
+# Map RentFaster API type values → canonical property types
+RENTFASTER_TYPE_MAP = {
+    'apartment': 'Apartment',
+    'condo': 'Apartment',
+    'loft': 'Loft',
+    'townhouse': 'Townhome',
+    'townhome': 'Townhome',
+    'duplex': 'Duplex',
+    'house': 'Full Home',
+    'full home': 'Full Home',
+    'main floor': 'MainFloor',
+    'mainfloor': 'MainFloor',
+    'basement': 'Basement',
+    'basement suite': 'Basement',
+    'room': 'Private/Sharing Room',
+    'private room': 'Private/Sharing Room',
+    'shared room': 'Private/Sharing Room',
+    'acreage': 'Acreage',
+    'farm': 'Acreage',
+    'garage suite': 'Garage Suite/mobile-home',
+    'garage': 'Garage Suite/mobile-home',
+    'mobile home': 'Garage Suite/mobile-home',
+    'office': 'Office Space',
+    'office space': 'Office Space',
+    'commercial': 'Office Space',
+    'parking': 'Parking Spot',
+    'parking spot': 'Parking Spot',
+    'storage': 'Storage',
+}
+
 PAGE_SIZE = 25
 HEADERS = {
     'User-Agent': (
@@ -49,7 +79,8 @@ def _parse_listing(item: dict, city_name: str) -> dict:
         'city': city_name,
         'province': 'AB',
         'postal_code': item.get('postal'),
-        'property_type': item.get('type', ''),
+        'property_type': RENTFASTER_TYPE_MAP.get(
+            (item.get('type') or '').lower().strip(), 'Other'),
         'beds': float(item['beds']) if item.get('beds') not in (None, '', '-') else None,
         'baths': float(item['baths']) if item.get('baths') not in (None, '', '-') else None,
         'sqft': item.get('sq_feet') or None,
@@ -66,12 +97,17 @@ class RentFasterScraper(BaseScraper):
         self.proxy = proxy
 
     async def run(self):
+        from datetime import date
+        from models import Listing
+
         proxy_url = self.proxy.httpx_proxy_url()
         client_kwargs = {'headers': HEADERS, 'timeout': 30}
         if proxy_url:
             client_kwargs['proxy'] = proxy_url
 
         proxy_config = self.proxy.playwright_config()
+        today = date.today()
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, proxy=proxy_config)
             context = await browser.new_context(
@@ -90,6 +126,14 @@ class RentFasterScraper(BaseScraper):
                             self.error_count += 1
             finally:
                 await browser.close()
+
+        # Mark listings not seen today as inactive
+        deactivated = (self.session.query(Listing)
+                       .filter(Listing.source == 'rentfaster',
+                               Listing.is_active == True,
+                               Listing.last_seen < today)
+                       .update({'is_active': False}, synchronize_session=False))
+        self.log.append(f'[RentFaster] Marked {deactivated} listings inactive')
         self.session.commit()
 
     async def _fetch_city(self, city_name: str, city_id: int, client=None, pw_context=None):
@@ -111,12 +155,18 @@ class RentFasterScraper(BaseScraper):
                     break
 
                 for item in items:
-                    listing_data = _parse_listing(item, city_name)
-                    # Reveal phone if not included in API response
-                    if not listing_data['phone']:
-                        listing_data['phone'] = await self._reveal_phone(
-                            item['ref_id'], city_name, pw_context)
-                    self.upsert_listing(listing_data)
+                    try:
+                        listing_data = _parse_listing(item, city_name)
+                        # Reveal phone if not included in API response
+                        if not listing_data['phone']:
+                            listing_data['phone'] = await self._reveal_phone(
+                                item['ref_id'], city_name, pw_context)
+                        self.upsert_listing(listing_data)
+                    except Exception as e:
+                        self.log.append(
+                            f'[RentFaster] Skipping listing {item.get("ref_id", "?")} '
+                            f'in {city_name}: {e}')
+                        self.error_count += 1
 
                 if len(items) < PAGE_SIZE:
                     break

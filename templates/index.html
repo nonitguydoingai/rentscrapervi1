@@ -96,9 +96,20 @@
           <label>Property Type</label>
           <select id="f-property_type">
             <option value="">All Types</option>
-            <option>Apartment</option><option>Full Home</option>
-            <option>Private/Sharing Room</option><option>Condo</option>
-            <option>Townhouse</option>
+            <option>Acreage</option>
+            <option>Apartment</option>
+            <option>Townhome</option>
+            <option>Duplex</option>
+            <option>MainFloor</option>
+            <option>Full Home</option>
+            <option>Basement</option>
+            <option>Loft</option>
+            <option>Garage Suite/mobile-home</option>
+            <option>Office Space</option>
+            <option>Other</option>
+            <option>Parking Spot</option>
+            <option>Storage</option>
+            <option>Private/Sharing Room</option>
           </select>
         </div>
         <div class="filter-group">
@@ -230,9 +241,13 @@ function safePhone(phone) {
 }
 
 const PROP_BADGE = {
-  'Apartment': 'badge-apt', 'Full Home': 'badge-house',
-  'Private/Sharing Room': 'badge-room', 'Condo': 'badge-condo',
-  'Townhouse': 'badge-town',
+  'Acreage': 'badge-house', 'Apartment': 'badge-apt',
+  'Townhome': 'badge-town', 'Duplex': 'badge-condo',
+  'MainFloor': 'badge-apt', 'Full Home': 'badge-house',
+  'Basement': 'badge-room', 'Loft': 'badge-apt',
+  'Garage Suite/mobile-home': 'badge-condo', 'Office Space': 'badge-condo',
+  'Other': 'badge-room', 'Parking Spot': 'badge-room',
+  'Storage': 'badge-room', 'Private/Sharing Room': 'badge-room',
 };
 
 let currentDailyFilter = 'new_landlords';
