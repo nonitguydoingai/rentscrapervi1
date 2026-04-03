@@ -25,7 +25,9 @@ class ProxyManager:
         if not url:
             return None
         parsed = urlparse(url)
-        config = {'server': f'{parsed.scheme}://{parsed.hostname}:{parsed.port}'}
+        host = parsed.hostname
+        port_part = f':{parsed.port}' if parsed.port else ''
+        config = {'server': f'{parsed.scheme}://{host}{port_part}'}
         if parsed.username:
             config['username'] = parsed.username
         if parsed.password:
