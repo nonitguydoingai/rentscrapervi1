@@ -1,4 +1,5 @@
 import asyncio
+import random
 import httpx
 from playwright.async_api import async_playwright
 from scrapers.base import BaseScraper
@@ -61,10 +62,19 @@ HEADERS = {
     'User-Agent': (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
         'AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Chrome/124.0.0.0 Safari/537.36'
+        'Chrome/131.0.0.0 Safari/537.36'
     ),
     'Accept': 'application/json',
+    'Referer': 'https://www.rentfaster.ca/',
+    'Accept-Language': 'en-CA,en;q=0.9',
 }
+
+# Playwright launch args to reduce bot-detection signals
+STEALTH_ARGS = [
+    '--disable-blink-features=AutomationControlled',
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
+]
 
 
 def _parse_listing(item: dict, city_name: str) -> dict:
@@ -109,9 +119,16 @@ class RentFasterScraper(BaseScraper):
         today = date.today()
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True, proxy=proxy_config)
+            browser = await p.chromium.launch(
+                headless=True,
+                proxy=proxy_config,
+                args=STEALTH_ARGS,
+            )
             context = await browser.new_context(
                 user_agent=HEADERS['User-Agent'],
+                viewport={'width': 1366, 'height': 768},
+                timezone_id='America/Edmonton',
+                locale='en-CA',
                 extra_http_headers={'Accept-Language': 'en-CA,en;q=0.9'},
             )
             try:
@@ -143,11 +160,8 @@ class RentFasterScraper(BaseScraper):
 
         try:
             while True:
-                resp = await _client.get(
-                    RENTFASTER_API,
-                    params={'city_id': city_id, 'novac': offset},
-                )
-                resp.raise_for_status()
+                resp = await self._get_with_retry(_client, RENTFASTER_API,
+                                                  params={'city_id': city_id, 'novac': offset})
                 data = resp.json()
                 items = data.get('listings', [])
 
@@ -161,6 +175,8 @@ class RentFasterScraper(BaseScraper):
                         if not listing_data['phone']:
                             listing_data['phone'] = await self._reveal_phone(
                                 item['ref_id'], city_name, pw_context)
+                            # Human-like delay between phone reveals
+                            await asyncio.sleep(random.uniform(1.5, 3.5))
                         self.upsert_listing(listing_data)
                     except Exception as e:
                         self.log.append(
@@ -171,10 +187,35 @@ class RentFasterScraper(BaseScraper):
                 if len(items) < PAGE_SIZE:
                     break
                 offset += PAGE_SIZE
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(random.uniform(0.5, 1.5))
         finally:
             if should_close:
                 await _client.aclose()
+
+    async def _get_with_retry(self, client, url, params=None, max_retries=3):
+        """GET with exponential backoff on 429/503 and proxy-aware retry."""
+        for attempt in range(max_retries):
+            try:
+                resp = await client.get(url, params=params)
+                if resp.status_code == 429:
+                    wait = 30 * (attempt + 1)
+                    self.log.append(f'[RentFaster] Rate limited — waiting {wait}s')
+                    await asyncio.sleep(wait)
+                    continue
+                if resp.status_code == 503:
+                    wait = 10 * (attempt + 1)
+                    self.log.append(f'[RentFaster] 503 — waiting {wait}s')
+                    await asyncio.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                return resp
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                if attempt == max_retries - 1:
+                    raise
+                wait = 5 * (attempt + 1)
+                self.log.append(f'[RentFaster] Connection error, retry in {wait}s: {e}')
+                await asyncio.sleep(wait)
+        raise RuntimeError(f'[RentFaster] Failed after {max_retries} attempts: {url}')
 
     async def _reveal_phone(self, ref_id: int, city_name: str, context=None) -> str | None:
         """Open listing page in shared browser context, click Reveal, capture phone."""

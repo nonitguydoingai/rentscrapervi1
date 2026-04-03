@@ -4,11 +4,10 @@ from urllib.parse import urlparse
 
 
 class ProxyManager:
-    """Manages rotating proxy list for web scraping."""
+    """Manages rotating proxy list with fallback to direct connection."""
 
     def __init__(self, proxies=None):
         if proxies is None:
-            # Load from environment
             proxies = [p for p in [os.getenv('PROXY_1'), os.getenv('PROXY_2')] if p]
         self._proxies = proxies
         self._cycle = cycle(proxies) if proxies else None
@@ -19,9 +18,13 @@ class ProxyManager:
             return next(self._cycle)
         return None
 
-    def playwright_config(self):
-        """Return Playwright proxy dict or None."""
-        url = self.get()
+    def get_all(self):
+        """Return all proxy URLs followed by None (direct) as a fallback sequence."""
+        return list(self._proxies) + [None]
+
+    def playwright_config(self, url=None):
+        """Return Playwright proxy dict or None. Pass url to use a specific proxy."""
+        url = url if url is not None else self.get()
         if not url:
             return None
         parsed = urlparse(url)

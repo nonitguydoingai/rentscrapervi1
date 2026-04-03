@@ -1,4 +1,5 @@
 import asyncio
+import random
 import re
 from playwright.async_api import async_playwright, Page
 from scrapers.base import BaseScraper
@@ -47,9 +48,15 @@ HEADERS = {
     'User-Agent': (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
         'AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Chrome/124.0.0.0 Safari/537.36'
+        'Chrome/131.0.0.0 Safari/537.36'
     )
 }
+
+STEALTH_ARGS = [
+    '--disable-blink-features=AutomationControlled',
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
+]
 
 
 def _clean_phone(raw: str | None) -> str | None:
@@ -79,9 +86,16 @@ class RentalsCaScraper(BaseScraper):
         today = date.today()
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True, proxy=proxy_config)
+            browser = await p.chromium.launch(
+                headless=True,
+                proxy=proxy_config,
+                args=STEALTH_ARGS,
+            )
             context = await browser.new_context(
                 user_agent=HEADERS['User-Agent'],
+                viewport={'width': 1366, 'height': 768},
+                timezone_id='America/Edmonton',
+                locale='en-CA',
                 extra_http_headers={'Accept-Language': 'en-CA,en;q=0.9'},
             )
             try:
@@ -98,7 +112,7 @@ class RentalsCaScraper(BaseScraper):
                         self.error_count += 1
                     finally:
                         await page.close()
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(random.uniform(0.5, 1.5))
             finally:
                 await browser.close()
 
@@ -125,9 +139,11 @@ class RentalsCaScraper(BaseScraper):
                     break
                 await page.goto(
                     SEARCH_URL.format(page=page_num),
-                    wait_until='networkidle',
+                    wait_until='domcontentloaded',
                     timeout=30000,
                 )
+                # Wait for listing cards to actually render
+                await page.wait_for_timeout(random.randint(1000, 2000))
                 cards = await page.locator('a[href*="/listing/"]').all()
                 if not cards:
                     break
@@ -151,7 +167,7 @@ class RentalsCaScraper(BaseScraper):
                 if await next_btn.count() == 0:
                     break
                 page_num += 1
-                await asyncio.sleep(1)
+                await asyncio.sleep(random.uniform(1.5, 3.0))
         finally:
             await page.close()
 
